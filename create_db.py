@@ -1,31 +1,35 @@
-def create_db():
-    con = sqlite3.connect(database=r'imsc.db')
-    cur = con.cursor()
-    
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS transactions (
-        date TEXT,
-        type TEXT,
-        income REAL,
-        expense REAL,
-        loan REAL,
-        month TEXT,
-        year TEXT
-    )
-    """)
-    
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value REAL
-    )
-    """)
-    
-    # Set initial balance if not exists
-    cur.execute("""
-    INSERT OR IGNORE INTO settings (key, value) 
-    VALUES ('initial_balance', 0)
-    """)
-    
-    con.commit()
-    con.close()
+# create_db.py
+import sqlite3
+import datetime
+
+class DBConnection:
+    def __init__(self):
+        self.conn = sqlite3.connect('cashflow.db')
+        self.cursor = self.conn.cursor()
+        self.create_tables()
+        
+    def create_tables(self):
+        # Transactions table
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            datetime TEXT NOT NULL,
+                            description TEXT NOT NULL,
+                            amount REAL NOT NULL,
+                            type TEXT NOT NULL,
+                            category TEXT,
+                            month INTEGER,
+                            year INTEGER,
+                            is_fixed BOOLEAN DEFAULT 0
+                            )''')
+        
+        # Fixed Transactions table
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS fixed_transactions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            datetime TEXT NOT NULL,
+                            description TEXT NOT NULL,
+                            amount REAL NOT NULL,
+                            type TEXT NOT NULL,
+                            fixed_day INTEGER NOT NULL,
+                            paid_date TEXT DEFAULT NULL
+                            )''')
+        self.conn.commit()
