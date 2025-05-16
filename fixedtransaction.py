@@ -1,16 +1,366 @@
 from tkinter import *
 from tkinter import ttk, messagebox
-from PIL import Image, ImageTk
-import datetime
+from datetime import datetime, date
+from dateutil.relativedelta import relativedelta
+from create_db import DBConnection
 
 class FixedTransaction:
     def __init__(self, root):
         self.root = root
-        self.root.geometry("1110x500+220+130")
-        self.root.title("Fixed Transactions")
+        self.root.geometry("1200x600+200+130")
+        self.root.title("Fixed Transactions Management")
         self.root.config(bg="white")
         self.root.focus_force()
-    
+        
+        self.db = DBConnection()
+        self.cursor = self.db.cursor
+        
+        # Variables
+        self.var_id = StringVar()
+        self.var_description = StringVar()
+        self.var_amount = StringVar()
+        self.var_type = StringVar()
+        self.var_category = StringVar()
+        self.var_frequency = StringVar()
+        self.var_due_day = IntVar(value=1)
+        self.var_search_month = StringVar()
+        
+        # UI Components
+        self.create_input_fields()
+        self.create_buttons()
+        self.create_treeview()
+        self.create_filter_section()
+        self.load_data()
+
+    def create_input_fields(self):
+        input_frame = Frame(self.root, bd=3, relief=RIDGE, bg="white")
+        input_frame.place(x=50, y=50, width=400, height=450)
+        
+        Label(input_frame, text="Fixed Transaction Details", font=("arial", 14, "bold"), bg="lightgray").pack(fill=X)
+        
+        fields = [
+            ("Description", self.var_description, 50),
+            ("Amount", self.var_amount, 90),
+            ("Type", self.var_type, 130, ["Income", "Expense"]),
+            ("Category", self.var_category, 170, ["EMI", "Rent", "Utilities", "Insurance", "Subscription", "Other"]),
+            ("Frequency", self.var_frequency, 210, ["Monthly", "Bi-Monthly", "Quarterly", "Annual"]),
+        ]
+        
+        y_pos = 50
+        for field in fields:
+            Label(input_frame, text=f"{field[0]}:", bg="white", font=("arial", 12)).place(x=10, y=y_pos)
+            if len(field) > 3:
+                ttk.Combobox(input_frame, textvariable=field[1], values=field[3], 
+                            state="readonly", font=("arial", 12)).place(x=120, y=y_pos, width=250)
+            else:
+                Entry(input_frame, textvariable=field[1], font=("arial", 12), bg="lightyellow").place(x=120, y=y_pos, width=250)
+            y_pos += 40
+            
+        Label(input_frame, text="Due Day:", bg="white", font=("arial", 12)).place(x=10, y=290)
+        Spinbox(input_frame, from_=1, to=31, textvariable=self.var_due_day, 
+               font=("arial", 12)).place(x=120, y=290, width=250)
+
+    def create_buttons(self):
+        buttons = [
+            ("Save", "green", self.save, 50, 510),
+            ("Update", "orange", self.update, 160, 510),
+            ("Delete", "red", self.delete, 270, 510),
+            ("Clear", "gray", self.clear, 380, 510),
+            ("Mark Paid", "blue", self.mark_paid, 50, 550)
+        ]
+        
+        for text, color, command, x, y in buttons:
+            Button(self.root, text=text, bg=color, fg="white", font=("arial", 12, "bold"),
+                  command=command).place(x=x, y=y, width=100 if text != "Mark Paid" else 150, height=30)
+
+    def create_treeview(self):
+        tree_frame = Frame(self.root, bd=3, relief=RIDGE)
+        tree_frame.place(x=500, y=50, width=650, height=500)
+        
+        scroll_y = Scrollbar(tree_frame, orient=VERTICAL)
+        self.tree = ttk.Treeview(tree_frame, columns=("desc", "amount", "type", "category", "freq", "due", "next_due", "status"), 
+                                yscrollcommand=scroll_y.set)
+        scroll_y.pack(side=RIGHT, fill=Y)
+        scroll_y.config(command=self.tree.yview)
+        
+        # Corrected anchor values (use 'w' instead of LEFT, 'e' instead of E, 'center' instead of CENTER)
+        columns = [
+            ("#0", "ID", 50, 'center'),
+            ("desc", "Description", 150, 'w'),
+            ("amount", "Amount", 80, 'e'),
+            ("type", "Type", 80, 'center'),
+            ("category", "Category", 100, 'w'),
+            ("freq", "Frequency", 100, 'w'),
+            ("due", "Due Day", 70, 'center'),
+            ("next_due", "Next Due", 100, 'center'),
+            ("status", "Status", 80, 'center')
+        ]
+        
+        for col in columns:
+            self.tree.heading(col[0], text=col[1])
+            self.tree.column(col[0], width=col[2], anchor=col[3])
+        
+        self.tree.pack(fill=BOTH, expand=1)
+        self.tree.bind("<ButtonRelease-1>", self.get_data)
+
+    def create_filter_section(self):
+        filter_frame = Frame(self.root, bg="white")
+        filter_frame.place(x=500, y=10, width=650, height=30)
+        
+        Label(filter_frame, text="Filter by Month:", font=("arial", 12)).pack(side=LEFT, padx=5)
+        ttk.Combobox(filter_frame, textvariable=self.var_search_month, 
+                    values=["All"] + [date(2000, m, 1).strftime('%B') for m in range(1,13)], 
+                    state="readonly", width=15).pack(side=LEFT, padx=5)
+        Button(filter_frame, text="Search", command=self.load_data, bg="lightblue").pack(side=LEFT, padx=5)
+        self.var_search_month.set("All")
+
+    def save(self):
+        if not all([self.var_description.get(), self.var_amount.get(), self.var_type.get()]):
+            messagebox.showerror("Error", "Please fill all mandatory fields!")
+            return
+            
+        try:
+            entry_date = date.today().strftime("%Y-%m-%d")
+            next_due = self.calculate_next_due()
+            
+            self.cursor.execute('''INSERT INTO fixed_transactions 
+                                (entry_date, description, amount, type, category, 
+                                frequency, due_day, next_due_date)
+                                VALUES (?,?,?,?,?,?,?,?)''',
+                                (entry_date,
+                                 self.var_description.get(),
+                                 float(self.var_amount.get()),
+                                 self.var_type.get(),
+                                 self.var_category.get(),
+                                 self.var_frequency.get(),
+                                 self.var_due_day.get(),
+                                 next_due))
+            
+            fixed_id = self.cursor.lastrowid
+            self.generate_payment_records(fixed_id, entry_date)
+            
+            self.db.conn.commit()
+            self.load_data()
+            self.clear()
+            messagebox.showinfo("Success", "Transaction saved successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
+
+    def generate_payment_records(self, fixed_id, start_date):
+        """Create payment status records for all applicable months"""
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = date.today()
+        current = start
+        
+        while current <= end:
+            self.cursor.execute('''INSERT OR IGNORE INTO payment_status 
+                                  (fixed_id, month, year)
+                                  VALUES (?,?,?)''',
+                                  (fixed_id, current.month, current.year))
+            current += relativedelta(months=1)
+
+    def calculate_next_due(self):
+        today = date.today()
+        due_day = self.var_due_day.get()
+        freq = self.var_frequency.get()
+        
+        try:
+            initial_due = date(today.year, today.month, due_day)
+        except ValueError:
+            initial_due = date(today.year, today.month, 28)  # Handle invalid day for month
+            
+        freq_map = {
+            "Monthly": 1,
+            "Bi-Monthly": 2,
+            "Quarterly": 3,
+            "Annual": 12
+        }
+        
+        months = freq_map.get(freq, 1)
+        next_due = initial_due
+        
+        while next_due <= today:
+            year = next_due.year + (next_due.month + months - 1) // 12
+            month = (next_due.month + months - 1) % 12 + 1
+            try:
+                next_due = date(year, month, due_day)
+            except ValueError:
+                next_due = date(year, month, 28)
+        
+        return next_due.strftime("%Y-%m-%d")
+
+    def load_data(self):
+        self.tree.delete(*self.tree.get_children())
+        query = '''SELECT 
+                    ft.id, ft.description, ft.amount, ft.type, ft.category,
+                    ft.frequency, ft.due_day, ft.next_due_date,
+                    ps.status, ps.month, ps.year
+                 FROM fixed_transactions ft
+                 LEFT JOIN payment_status ps 
+                    ON ft.id = ps.fixed_id
+                    AND ps.month = strftime('%m', ft.next_due_date) 
+                    AND ps.year = strftime('%Y', ft.next_due_date)'''
+        
+        params = ()
+        if self.var_search_month.get() != "All":
+            month_num = datetime.strptime(self.var_search_month.get(), "%B").month
+            query += " WHERE strftime('%m', ft.next_due_date) = ?"
+            params = (f"{month_num:02d}",)
+            
+        self.cursor.execute(query, params)
+        for row in self.cursor.fetchall():
+            status = row[8] or "Pending"
+            self.tree.insert("", "end", text=row[0], values=(
+                row[1], row[2], row[3], row[4], row[5], row[6],
+                row[7], f"{status} ({row[9]}/{row[10]})" if row[9] else status
+            ))
+
+    def mark_paid(self):
+        if not self.var_id.get():
+            messagebox.showerror("Error", "Select a transaction to mark paid!")
+            return
+            
+        try:
+            # Get current month/year
+            current_month = datetime.now().month
+            current_year = datetime.now().year
+            
+            # Update payment status
+            self.cursor.execute('''UPDATE payment_status SET
+                                status=?, paid_date=CURRENT_DATE
+                                WHERE fixed_id=? 
+                                AND month=? 
+                                AND year=?''',
+                                ("Paid", self.var_id.get(), 
+                                 current_month, current_year))
+            
+            # Add to main transactions
+            self.cursor.execute('''INSERT INTO transactions 
+                                (datetime, description, amount, type, category,
+                                month, year, fixed_id)
+                                SELECT CURRENT_DATE, description, amount, type, category,
+                                ?, ?, id
+                                FROM fixed_transactions WHERE id=?''',
+                                (current_month, current_year, self.var_id.get()))
+            
+            # Update next due date and generate new payment record
+            self.update_next_due_date()
+            
+            self.db.conn.commit()
+            self.load_data()
+            messagebox.showinfo("Success", "Transaction marked as paid for this month!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
+
+    def update_next_due_date(self):
+        # Get current due date
+        self.cursor.execute('''SELECT next_due_date, frequency 
+                            FROM fixed_transactions WHERE id=?''',
+                            (self.var_id.get(),))
+        result = self.cursor.fetchone()
+        current_due = datetime.strptime(result[0], "%Y-%m-%d").date()
+        frequency = result[1]
+        
+        # Calculate new due date
+        new_due = self.add_months(current_due, {
+            "Monthly": 1,
+            "Bi-Monthly": 2,
+            "Quarterly": 3,
+            "Annual": 12
+        }[frequency])
+        
+        # Update fixed transaction
+        self.cursor.execute('''UPDATE fixed_transactions 
+                            SET next_due_date=?
+                            WHERE id=?''',
+                            (new_due.strftime("%Y-%m-%d"), self.var_id.get()))
+        
+        # Create new payment record
+        self.cursor.execute('''INSERT OR IGNORE INTO payment_status 
+                            (fixed_id, month, year)
+                            VALUES (?,?,?)''',
+                            (self.var_id.get(), new_due.month, new_due.year))
+
+    def add_months(self, source_date, months):
+        month = source_date.month - 1 + months
+        year = source_date.year + (month // 12)
+        month = (month % 12) + 1
+        day = source_date.day
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return date(year, month, 28)
+
+    def load_data(self):
+        self.tree.delete(*self.tree.get_children())
+        query = '''SELECT id, description, amount, type, category, frequency, due_day, 
+                  next_due_date, status FROM fixed_transactions'''
+        params = ()
+        
+        if self.var_search_month.get() != "All":
+            month_num = datetime.datetime.strptime(self.var_search_month.get(), "%B").month
+            query += " WHERE strftime('%m', next_due_date) = ?"
+            params = (f"{month_num:02d}",)
+            
+        self.cursor.execute(query, params)
+        for row in self.cursor.fetchall():
+            self.tree.insert("", "end", text=row[0], values=row[1:])
+
+    def get_data(self, event):
+        selected = self.tree.focus()
+        if selected:
+            data = self.tree.item(selected)
+            self.var_id.set(data['text'])
+            values = data['values']
+            self.var_description.set(values[0])
+            self.var_amount.set(values[1])
+            self.var_type.set(values[2])
+            self.var_category.set(values[3])
+            self.var_frequency.set(values[4])
+            self.var_due_day.set(values[5])
+
+    def update(self):
+        if not self.var_id.get():
+            messagebox.showerror("Error", "Select a record to update!")
+            return
+            
+        try:
+            next_due = self.calculate_next_due()
+            self.cursor.execute('''UPDATE fixed_transactions SET
+                                description=?, amount=?, type=?, category=?,
+                                frequency=?, due_day=?, next_due_date=?
+                                WHERE id=?''',
+                                (self.var_description.get(),
+                                 float(self.var_amount.get()),
+                                 self.var_type.get(),
+                                 self.var_category.get(),
+                                 self.var_frequency.get(),
+                                 self.var_due_day.get(),
+                                 next_due,
+                                 self.var_id.get()))
+            self.db.conn.commit()
+            self.load_data()
+            self.clear()
+            messagebox.showinfo("Success", "Transaction updated!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
+
+    def delete(self):
+        if not self.var_id.get():
+            messagebox.showerror("Error", "Select a record to delete!")
+            return
+            
+        if messagebox.askyesno("Confirm", "Delete this transaction?"):
+            self.cursor.execute("DELETE FROM fixed_transactions WHERE id=?", (self.var_id.get(),))
+            self.db.conn.commit()
+            self.load_data()
+            self.clear()
+
+    def clear(self):
+        for var in [self.var_id, self.var_description, self.var_amount, 
+                   self.var_type, self.var_category, self.var_frequency]:
+            var.set("")
+        self.var_due_day.set(1)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
-# create_db.py
+# create_db.py (updated)
 import sqlite3
-import datetime
 
 class DBConnection:
     def __init__(self):
@@ -9,7 +8,31 @@ class DBConnection:
         self.create_tables()
         
     def create_tables(self):
-        # Transactions table
+        # Fixed Transactions Table
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS fixed_transactions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            entry_date TEXT NOT NULL,
+                            description TEXT NOT NULL,
+                            amount REAL NOT NULL,
+                            type TEXT NOT NULL,
+                            category TEXT,
+                            frequency TEXT NOT NULL,
+                            due_day INTEGER NOT NULL,
+                            next_due_date TEXT NOT NULL
+                            )''')
+
+        # Payment Status Table
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS payment_status (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            fixed_id INTEGER NOT NULL,
+                            month INTEGER NOT NULL,
+                            year INTEGER NOT NULL,
+                            status TEXT DEFAULT 'Pending',
+                            paid_date TEXT,
+                            FOREIGN KEY(fixed_id) REFERENCES fixed_transactions(id)
+                            )''')
+
+        # Main Transactions Table
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             datetime TEXT NOT NULL,
@@ -19,17 +42,7 @@ class DBConnection:
                             category TEXT,
                             month INTEGER,
                             year INTEGER,
-                            is_fixed BOOLEAN DEFAULT 0
-                            )''')
-        
-        # Fixed Transactions table
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS fixed_transactions (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            datetime TEXT NOT NULL,
-                            description TEXT NOT NULL,
-                            amount REAL NOT NULL,
-                            type TEXT NOT NULL,
-                            fixed_day INTEGER NOT NULL,
-                            paid_date TEXT DEFAULT NULL
+                            fixed_id INTEGER,
+                            FOREIGN KEY(fixed_id) REFERENCES fixed_transactions(id)
                             )''')
         self.conn.commit()
