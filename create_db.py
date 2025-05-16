@@ -1,4 +1,4 @@
-# create_db.py (updated)
+# create_db.py
 import sqlite3
 
 class DBConnection:
