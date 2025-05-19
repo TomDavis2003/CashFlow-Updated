@@ -115,17 +115,14 @@ class FixedTransaction:
                     state="readonly", width=12).pack(side=LEFT, padx=5)
         
         Label(filter_frame, text="Year:", font=("arial", 12)).pack(side=LEFT, padx=5)
+        
+        # Year combobox with 2010-2040 range
+        years = [str(y) for y in range(2010, 2041)]
+        self.var_search_year.set(str(datetime.now().year))
         ttk.Combobox(filter_frame, textvariable=self.var_search_year, 
-                    state="readonly", width=8).pack(side=LEFT, padx=5)
+                    values=years, state="readonly", width=8).pack(side=LEFT, padx=5)
         
         Button(filter_frame, text="Search", command=self.load_data, bg="lightblue").pack(side=LEFT, padx=5)
-        
-        # Populate years
-        current_year = datetime.now().year
-        years = [str(y) for y in range(current_year-2, current_year+3)]
-        self.var_search_year.set(str(current_year))
-        ttk.Combobox(filter_frame, textvariable=self.var_search_year, 
-                    values=years, state="readonly", width=8)
 
     def save(self):
         if not all([self.var_description.get(), self.var_amount.get(), self.var_type.get()]):
@@ -150,7 +147,8 @@ class FixedTransaction:
                                  next_due))
             
             fixed_id = self.cursor.lastrowid
-            self.generate_payment_records(fixed_id, datetime.now().date())
+            next_due_date = datetime.strptime(next_due, "%Y-%m-%d").date()
+            self.generate_payment_records(fixed_id, next_due_date, self.cursor)
             
             self.db.conn.commit()
             self.load_data()
@@ -159,47 +157,22 @@ class FixedTransaction:
         except Exception as e:
             messagebox.showerror("Error", f"Database error: {str(e)}")
 
-    def generate_payment_records(self, fixed_id, start_date):
-        start = start_dateload
-        end = date(start.year + 2, 12, 31)  # Generate records for 2 years ahead
-        current = start
-        
-        while current <= end:
-            self.cursor.execute('''INSERT OR IGNORE INTO payment_status 
-                                  (fixed_id, month, year)
-                                  VALUES (?,?,?)''',
-                                  (fixed_id, current.month, current.year))
-            current += relativedelta(months=1)
-
     def calculate_next_due(self):
         today = date.today()
         due_day = self.var_due_day.get()
         freq = self.var_frequency.get()
         
+        # Always start from current month
         try:
             initial_due = date(today.year, today.month, due_day)
         except ValueError:
             initial_due = date(today.year, today.month, 28)
             
-        freq_map = {
-            "Monthly": 1,
-            "Bi-Monthly": 2,
-            "Quarterly": 3,
-            "Annual": 12
-        }
+        # If due date already passed this month, keep it current month
+        if initial_due < today:
+            initial_due = initial_due  # Still use current month's due date
         
-        months = freq_map.get(freq, 1)
-        next_due = initial_due
-        
-        while next_due <= today:
-            year = next_due.year + (next_due.month + months - 1) // 12
-            month = (next_due.month + months - 1) % 12 + 1
-            try:
-                next_due = date(year, month, due_day)
-            except ValueError:
-                next_due = date(year, month, 28)
-        
-        return next_due.strftime("%Y-%m-%d")
+        return initial_due.strftime("%Y-%m-%d")
 
     def load_data(self):
         self.tree.delete(*self.tree.get_children())
@@ -207,16 +180,15 @@ class FixedTransaction:
                     ft.id, 
                     ft.entry_date,
                     ft.description,
-                    ft.amount,
+                    COALESCE(ps.amount, ft.amount) AS amount,  -- Use stored amount for paid transactions
                     ft.type,
                     ft.category,
                     ft.frequency,
                     ft.due_day,
-                    ps.month || '/' || ps.year as period,
-                    ps.status,
-                    ps.paid_date,
                     ps.month,
-                    ps.year
+                    ps.year,
+                    ps.status,
+                    ps.paid_date
                 FROM fixed_transactions ft
                 JOIN payment_status ps ON ft.id = ps.fixed_id'''
         
@@ -248,11 +220,14 @@ class FixedTransaction:
         for row in self.cursor.fetchall():
             status_text = "Pending"
             paid_date = ""
-            if row[9] == "Paid":
-                paid_date = datetime.strptime(row[10], "%Y-%m-%d %H:%M:%S").strftime("%d-%b-%Y %H:%M")
+            if row[10] == "Paid":
+                paid_date = datetime.strptime(row[11], "%Y-%m-%d %H:%M:%S").strftime("%d-%b-%Y %H:%M")
                 status_text = f"Paid on {paid_date}"
             
-            due_date = date(int(row[12]), int(row[11]), row[7]).strftime("%d-%b-%Y")
+            try:
+                due_date = date(int(row[9]), int(row[8]), row[7]).strftime("%d-%b-%Y")
+            except ValueError:
+                due_date = "Invalid Date"
             
             self.tree.insert("", "end", text=row[0], values=(
                 datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S").strftime("%d-%b-%Y %H:%M"),
@@ -272,57 +247,82 @@ class FixedTransaction:
             return
             
         try:
-            paid_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            current_month = datetime.now().month
-            current_year = datetime.now().year
-            
-            # Update payment status
-            self.cursor.execute('''UPDATE payment_status SET
-                                status=?, paid_date=?
-                                WHERE fixed_id=? 
-                                AND month=? 
-                                AND year=?''',
-                                ("Paid", paid_datetime, self.var_id.get(), 
-                                 current_month, current_year))
-            
-            # Add to main transactions
-            self.cursor.execute('''INSERT INTO transactions 
+            with self.db.conn:
+                cursor = self.db.conn.cursor()
+                paid_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                current_month = datetime.now().month
+                current_year = datetime.now().year
+                
+                # Get and store current amount
+                cursor.execute('SELECT amount FROM fixed_transactions WHERE id=?', 
+                            (self.var_id.get(),))
+                current_amount = cursor.fetchone()[0]
+
+                # Update payment status with amount
+                cursor.execute('''UPDATE payment_status SET
+                                status=?, paid_date=?, amount=?
+                                WHERE fixed_id=? AND month=? AND year=?''',
+                                ("Paid", paid_datetime, current_amount,
+                                self.var_id.get(), current_month, current_year))
+                
+                # Add to transactions
+                cursor.execute('''INSERT INTO transactions 
                                 (datetime, description, amount, type, category,
                                 month, year, fixed_id)
-                                SELECT ?, description, amount, type, category,
-                                ?, ?, id
-                                FROM fixed_transactions WHERE id=?''',
-                                (paid_datetime, current_month, current_year, self.var_id.get()))
-            
-            # Update next due date and generate new payment record
-            self.update_next_due_date()
-            
-            self.db.conn.commit()
-            self.load_data()
-            messagebox.showinfo("Success", "Transaction marked as paid!")
+                                VALUES (?,?,?,?,?,?,?,?)''',
+                                (paid_datetime, 
+                                self.var_description.get(),
+                                current_amount,
+                                self.var_type.get(),
+                                self.var_category.get(),
+                                current_month, 
+                                current_year,
+                                self.var_id.get()))
+                
+                self.load_data()
+                messagebox.showinfo("Success", "Transaction marked as paid!")
         except Exception as e:
             messagebox.showerror("Error", f"Database error: {str(e)}")
 
-    def generate_payment_records(self, fixed_id, start_date):
-        # Corrected variable name from start_dateload to start_date
-        start = start_date  # <-- Fix this line
-        end = date(start.year + 2, 12, 31)  # Generate records for 2 years ahead
-        current = start
-        
-        while current <= end:
-            self.cursor.execute('''INSERT OR IGNORE INTO payment_status 
+    def generate_payment_records(self, fixed_id, start_date, cursor=None):
+        try:
+            if cursor is None:
+                cursor = self.cursor
+            cursor.execute('SELECT frequency FROM fixed_transactions WHERE id=?', 
+                        (fixed_id,))
+            frequency = cursor.fetchone()[0]
+            
+            freq_map = {
+                "Monthly": 1,
+                "Bi-Monthly": 2,
+                "Quarterly": 3,
+                "Annual": 12
+            }
+            step = freq_map.get(frequency, 1)
+
+            # Start from the first day of the current month
+            current_date = date(start_date.year, start_date.month, 1)
+            end_date = current_date + relativedelta(years=2)  # Generate for 2 years
+            
+            months_added = 0
+            while months_added < 24:  # Limit to 24 months (2 years)
+                cursor.execute('''INSERT OR IGNORE INTO payment_status 
                                 (fixed_id, month, year)
-                                VALUES (?,?,?)''',
-                                (fixed_id, current.month, current.year))
-            current += relativedelta(months=1)
+                                VALUES (?, ?, ?)''',
+                                (fixed_id, current_date.month, current_date.year))
+                
+                # Move to next period
+                current_date = self.add_months(current_date, step)
+                months_added += step
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error generating payment records: {str(e)}")
 
-    
-
-    def update_next_due_date(self):
-        self.cursor.execute('''SELECT next_due_date, frequency 
-                            FROM fixed_transactions WHERE id=?''',
-                            (self.var_id.get(),))
-        result = self.cursor.fetchone()
+    def update_next_due_date(self, cursor):
+        cursor.execute('''SELECT next_due_date, frequency 
+                        FROM fixed_transactions WHERE id=?''',
+                        (self.var_id.get(),))
+        result = cursor.fetchone()
         current_due = datetime.strptime(result[0], "%Y-%m-%d").date()
         frequency = result[1]
         
@@ -333,16 +333,12 @@ class FixedTransaction:
             "Annual": 12
         }[frequency])
         
-        self.cursor.execute('''UPDATE fixed_transactions 
-                            SET next_due_date=?
-                            WHERE id=?''',
-                            (new_due.strftime("%Y-%m-%d"), self.var_id.get()))
+        cursor.execute('''UPDATE fixed_transactions 
+                        SET next_due_date=?
+                        WHERE id=?''',
+                        (new_due.strftime("%Y-%m-%d"), self.var_id.get()))
         
-        # Create new payment record if not exists
-        self.cursor.execute('''INSERT OR IGNORE INTO payment_status 
-                            (fixed_id, month, year)
-                            VALUES (?,?,?)''',
-                            (self.var_id.get(), new_due.month, new_due.year))
+        self.generate_payment_records(self.var_id.get(), new_due, cursor)
 
     def add_months(self, source_date, months):
         month = source_date.month - 1 + months
@@ -399,10 +395,22 @@ class FixedTransaction:
             return
             
         if messagebox.askyesno("Confirm", "Delete this transaction?"):
-            self.cursor.execute("DELETE FROM fixed_transactions WHERE id=?", (self.var_id.get(),))
-            self.db.conn.commit()
-            self.load_data()
-            self.clear()
+            try:
+                # Delete related payment status first
+                self.cursor.execute("DELETE FROM payment_status WHERE fixed_id=?", 
+                                  (self.var_id.get(),))
+                # Delete related transactions
+                self.cursor.execute("DELETE FROM transactions WHERE fixed_id=?", 
+                                  (self.var_id.get(),))
+                # Finally delete the fixed transaction
+                self.cursor.execute("DELETE FROM fixed_transactions WHERE id=?", 
+                                  (self.var_id.get(),))
+                self.db.conn.commit()
+                self.load_data()
+                self.clear()
+            except Exception as e:
+                self.db.conn.rollback()
+                messagebox.showerror("Error", f"Database error: {str(e)}")
 
     def clear(self):
         for var in [self.var_id, self.var_description, self.var_amount, 

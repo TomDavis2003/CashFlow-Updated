@@ -7,6 +7,7 @@ from advanceamount import AdvanceAmount
 from delay import DelayAmount
 from payout import PayoutAmount
 from fixedtransaction import FixedTransaction
+from onetime import OneTime
 
 
 class IMS:
@@ -97,6 +98,10 @@ class IMS:
     def fixed_transaction(self):
         self.new_window = Toplevel(self.root)
         self.new_obj = FixedTransaction(self.new_window)
+
+    def one_time(self):
+        self.new_window = Toplevel(self.root)
+        self.new_obj = OneTime(self.new_window)
 
 
 if __name__ == "__main__":

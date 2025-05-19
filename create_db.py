@@ -29,9 +29,16 @@ class DBConnection:
                             year INTEGER NOT NULL,
                             status TEXT DEFAULT 'Pending',
                             paid_date TEXT,
+                            amount REAL,  -- Added column
                             FOREIGN KEY(fixed_id) REFERENCES fixed_transactions(id)
                             )''')
-
+        
+        # Check if 'amount' column exists in payment_status
+        self.cursor.execute("PRAGMA table_info(payment_status)")
+        columns = [column[1] for column in self.cursor.fetchall()]
+        if 'amount' not in columns:
+            self.cursor.execute('ALTER TABLE payment_status ADD COLUMN amount REAL')
+        
         # Main Transactions Table
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
