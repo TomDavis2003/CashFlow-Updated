@@ -21,7 +21,11 @@ class AllTransaction:
         self.var_search_month = StringVar(value="All")
         self.var_search_year  = StringVar(value=str(datetime.now().year))
 
+        # Balance variable
+        self.balance_var = StringVar()
+
         self.create_filter_section()
+        self.create_balance_label()
         self.create_treeview()
         self.create_refresh_button()
         self.load_data()
@@ -30,14 +34,16 @@ class AllTransaction:
         filter_frame = Frame(self.root, bg="white")
         filter_frame.place(x=20, y=10, width=1310, height=40)
 
-        Label(filter_frame, text="Month:", font=("arial", 12), bg="white").pack(side=LEFT, padx=(10, 5))
+        Label(filter_frame, text="Month:", font=("arial", 12), bg="white")\
+            .pack(side=LEFT, padx=(10, 5))
         month_values = ["All"] + [calendar.month_name[m] for m in range(1, 13)]
         ttk.Combobox(
             filter_frame, textvariable=self.var_search_month,
             values=month_values, state="readonly", width=12
         ).pack(side=LEFT, padx=(0, 15))
 
-        Label(filter_frame, text="Year:", font=("arial", 12), bg="white").pack(side=LEFT, padx=(0, 5))
+        Label(filter_frame, text="Year:", font=("arial", 12), bg="white")\
+            .pack(side=LEFT, padx=(0, 5))
         years = [str(y) for y in range(2010, 2041)]
         ttk.Combobox(
             filter_frame, textvariable=self.var_search_year,
@@ -49,9 +55,21 @@ class AllTransaction:
             bg="lightblue", font=("arial", 12, "bold")
         ).pack(side=LEFT)
 
+    def create_balance_label(self):
+        # Display current balance just below the filter bar
+        lbl_frame = Frame(self.root, bg="white")
+        lbl_frame.place(x=20, y=50, width=1310, height=30)
+        Label(
+            lbl_frame,
+            textvariable=self.balance_var,
+            font=("arial", 12, "bold"),
+            bg="white",
+            fg="darkgreen"
+        ).pack(anchor="w", padx=10)
+
     def create_treeview(self):
         tree_frame = Frame(self.root, bd=2, relief=RIDGE, bg="white")
-        tree_frame.place(x=20, y=60, width=1310, height=600)
+        tree_frame.place(x=20, y=80, width=1310, height=580)
 
         scroll_y = Scrollbar(tree_frame, orient=VERTICAL)
         self.tree = ttk.Treeview(
@@ -197,9 +215,28 @@ class AllTransaction:
                     source
                 ))
 
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load transactions:\n{str(e)}")
+            # After loading all rows, update balance label
+            self.update_balance()
 
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load transactions:\n{e}")
+
+    def update_balance(self):
+        """
+        Calculate the current balance (Income - Expense) and set the label.
+        """
+        try:
+            self.cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN type = 'Income' THEN amount ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN type = 'Expense' THEN amount ELSE 0 END), 0)
+                FROM transactions
+            """)
+            income_sum, expense_sum = self.cursor.fetchone()
+            balance = income_sum - expense_sum
+            self.balance_var.set(f"Current Balance: ₹{balance:.2f}")
+        except Exception as e:
+            self.balance_var.set("Current Balance: Error")
 
 if __name__ == "__main__":
     root = Tk()
