@@ -1,9 +1,8 @@
 from tkinter import *
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from tkcalendar import Calendar
 import sqlite3
 from datetime import datetime
-from tkinter import messagebox
 
 class AdvanceAmount:
     def __init__(self, root):
@@ -383,20 +382,22 @@ class AdvanceAmount:
 
     def mark_paid(self):
         """
-        Mark a selected record as Paid.  (No changes here.)
+        Mark a selected record as Paid, storing full date+time.
         """
         if not self.var_id.get():
             messagebox.showerror("Error", "Select an advance to mark as paid!")
             return
             
         try:
+            # Store full timestamp (date and time) in repaid_date
+            repaid_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.cursor.execute('''
                 UPDATE advances 
                 SET status = ?, repaid_date = ?
                 WHERE id = ?
             ''', (
                 "Paid", 
-                datetime.now().strftime("%Y-%m-%d"), 
+                repaid_ts,      # full datetime
                 self.var_id.get()
             ))
             self.db.commit()
