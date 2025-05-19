@@ -8,6 +8,7 @@ from delay import DelayAmount
 from payout import PayoutAmount
 from fixedtransaction import FixedTransaction
 from onetime import OneTime
+from loan import LoanAmount
 
 
 class IMS:
@@ -56,18 +57,23 @@ class IMS:
         btn_employee.pack(side=TOP, fill=X)
         
         # Add test button
-        btn_test = Button(self.LeftMenu, text="Delay", command=self.delay_amount,
-                         font=("times new roman", 15, "bold"), bg="white", bd=3, 
-                         fg="black", cursor="hand2")
+        btn_test = Button(self.LeftMenu, text="Delay", command=self.delay_amount, font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")
         btn_test.pack(side=TOP, fill=X)
         
-        btn_exit = Button(self.LeftMenu, text="Payouts", command=self.payout_amount,
-                         font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")
-        
-        btn_exit = Button(self.LeftMenu, text="Fixed Transactions", command=self.fixed_transaction,
-                         font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")        
+        btn_pay = Button(self.LeftMenu, text="Payouts", command=self.payout_amount, font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")
+        btn_pay.pack(side=TOP, fill=X)
 
-        btn_exit.pack(side=TOP, fill=X)
+        btn_one_time = Button(self.LeftMenu, text="One Time", command=self.one_time, font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")
+        btn_one_time.pack(side=TOP, fill=X)
+
+
+        # Add fixed transactions button
+        btn_fix = Button(self.LeftMenu, text="Fixed Transactions", command=self.fixed_transaction, font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")        
+        btn_fix.pack(side=TOP, fill=X)
+
+        # Add loan button
+        btn_loan = Button(self.LeftMenu, text="Loan Amounts", command=self.loan, font=("times new roman", 15, "bold"), bg="white", bd=3, fg="black", cursor="hand2")
+        btn_loan.pack(side=TOP, fill=X)
 
         # footer
         lbl_footer = Label(self.root, 
@@ -102,6 +108,10 @@ class IMS:
     def one_time(self):
         self.new_window = Toplevel(self.root)
         self.new_obj = OneTime(self.new_window)
+
+    def loan(self):
+        self.new_window = Toplevel(self.root)
+        self.new_obj = LoanAmount(self.new_window)
 
 
 if __name__ == "__main__":
