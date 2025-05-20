@@ -40,23 +40,19 @@ class AdvanceAmount:
         self.load_data()
 
     def create_table(self):
-        """
-        Ensures the advances table exists with the same schema.
-        Note: 'type' and 'due_date' columns must still exist in the table definition,
-        but the form will no longer set them manually.
-        """
+        """Create advances table if not exists"""
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS advances (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                entry_date    TEXT    NOT NULL,
-                description   TEXT    NOT NULL,
-                amount        REAL    NOT NULL,
-                type          TEXT    NOT NULL,
-                party         TEXT    NOT NULL,
-                advance_date  TEXT    NOT NULL,
-                due_date      TEXT    NOT NULL,
-                status        TEXT    DEFAULT 'Pending',
-                repaid_date   TEXT
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_date TEXT NOT NULL,
+                description TEXT NOT NULL,
+                amount REAL NOT NULL,
+                type TEXT NOT NULL,
+                party TEXT NOT NULL,
+                advance_date TEXT NOT NULL,
+                due_date TEXT NOT NULL,
+                status TEXT DEFAULT 'Pending',
+                repaid_date TEXT
             )
         ''')
         self.db.commit()
@@ -461,7 +457,7 @@ class AdvanceAmount:
             return
         
         try:
-            # === ADD THIS CODE TO FETCH ADVANCE DETAILS ===
+            # Fetch advance details
             self.cursor.execute(
                 "SELECT description, amount, party FROM advances WHERE id = ?",
                 (self.var_id.get(),)
@@ -470,18 +466,18 @@ class AdvanceAmount:
             if not result:
                 messagebox.showerror("Error", "Selected advance not found!")
                 return
-            desc, amt, party = result  # Now 'desc', 'amt', 'party' are defined
-            # === END OF ADDED CODE ===
-
-            loan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            desc, amt, party = result
+            loan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Correct variable name
             due_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
             
+            # Insert into loans with loan_date
             self.cursor.execute('''
                 INSERT INTO loans
                 (loan_date, description, amount, party, due_date, status, repaid_date)
                 VALUES (?, ?, ?, ?, ?, ?, NULL)
             ''', (
-                loan_date,
+                loan_date,  # This must match the column name in the table
                 f"Converted from Advance: {desc}",
                 float(amt),
                 party,

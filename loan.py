@@ -66,32 +66,18 @@ class LoanAmount:
         self.db.commit()
         
     def create_input_fields(self):
-        """
-        Left‐side input form (ID is hidden, loan_date is readonly):
-          - Loan Date (auto)
-          - Description
-          - Amount
-          - Party
-          - Due Date (calendar)
-          - Status (Pending / Repaid)
-        """
         input_frame = Frame(self.root, bd=3, relief=RIDGE, bg="white")
         input_frame.place(x=50, y=50, width=400, height=500)
 
-        Label(
-            input_frame,
-            text="Loan Details",
-            font=("arial", 14, "bold"),
-            bg="lightgray"
-        ).pack(fill=X)
+        Label(input_frame, text="Loan Details", font=("arial", 14, "bold"), bg="lightgray").pack(fill=X)
 
         fields = [
-            ("Loan Date",   self.var_entry_date,   50),  # Changed from Entry Date to Loan Date
-            ("Description",  self.var_description, 100),
-            ("Amount",       self.var_amount,      150),
-            ("Party",        self.var_party,       200),
-            ("Due Date",     self.var_due_date,    250, lambda: self.date_picker("due")),
-            ("Status",       self.var_status,      300, ["Pending", "Repaid"])
+            ("Loan Date",   self.var_loan_date,   50),  # CORRECTED LINE
+            ("Description", self.var_description, 100),
+            ("Amount",      self.var_amount,      150),
+            ("Party",       self.var_party,       200),
+            ("Due Date",    self.var_due_date,    250, lambda: self.date_picker("due")),
+            ("Status",      self.var_status,      300, ["Pending", "Repaid"])
         ]
 
         y_pos = 50
@@ -306,7 +292,7 @@ class LoanAmount:
         self.tree.delete(*self.tree.get_children())
         query = '''
             SELECT id, loan_date, description, amount, party, due_date, status
-            FROM loans  # Use loan_date instead of entry_date
+            FROM loans  
         '''
         params = []
         conditions = []
