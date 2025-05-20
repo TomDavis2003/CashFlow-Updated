@@ -2,7 +2,7 @@ from tkinter import *
 from tkinter import ttk, messagebox
 from tkcalendar import Calendar
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class AdvanceAmount:
     def __init__(self, root):
@@ -63,7 +63,7 @@ class AdvanceAmount:
 
     def create_input_fields(self):
         """
-        Build the left-side input form— WITHOUT "Type" or "Due Date" rows.
+        Build the left‐side input form— WITHOUT "Type" or "Due Date" rows.
         """
         input_frame = Frame(self.root, bd=3, relief=RIDGE, bg="white")
         input_frame.place(x=50, y=50, width=400, height=550)
@@ -79,10 +79,10 @@ class AdvanceAmount:
             ("Entry Date",   self.var_entry_date,   50),
             ("Description",  self.var_description, 100),
             ("Amount",       self.var_amount,      150),
-            # ("Type", removed)
+            # ("Type" removed)
             ("Party Name",   self.var_party,       200),
             ("Advance Date", self.var_advance_date,300, lambda: self.date_picker("advance")),
-            # ("Due Date", removed)
+            # ("Due Date" removed)
             ("Status",       self.var_status,     350, ["Pending", "Paid"])
         ]
         
@@ -117,7 +117,7 @@ class AdvanceAmount:
             
             # Otherwise, it’s a simple Entry
             else:
-                # "Entry Date" is read-only
+                # "Entry Date" is read‐only
                 if field[0] == "Entry Date":
                     Entry(
                         input_frame,
@@ -155,15 +155,16 @@ class AdvanceAmount:
 
     def create_buttons(self):
         """
-        Save / Update / Delete / Clear / Mark Paid
-        (same positions as before)
+        Save / Update / Delete / Clear / Mark Paid / Convert to Payout / Convert to Loan
         """
         buttons = [
-            ("Save",      "green",  self.save,      50, 610),
-            ("Update",    "orange", self.update,   160, 610),
-            ("Delete",    "red",    self.delete,   270, 610),
-            ("Clear",     "gray",   self.clear,    380, 610),
-            ("Mark Paid", "blue",   self.mark_paid, 50, 650)
+            ("Save",           "green",  self.save,             50, 610),
+            ("Update",         "orange", self.update,          160, 610),
+            ("Delete",         "red",    self.delete,          270, 610),
+            ("Clear",          "gray",   self.clear,           380, 610),
+            ("Mark Paid",      "blue",   self.mark_paid,        50, 650),
+            ("Convert→Payout", "purple", self.convert_to_payout, 160, 650),
+            ("Convert→Loan",   "brown",  self.convert_to_loan,   330, 650)
         ]
         
         for text, color, command, x, y in buttons:
@@ -177,7 +178,7 @@ class AdvanceAmount:
             ).place(
                 x=x,
                 y=y,
-                width=100 if text != "Mark Paid" else 150,
+                width=(150 if "Convert" in text else 100),
                 height=30
             )
 
@@ -222,7 +223,6 @@ class AdvanceAmount:
     def create_filter_section(self):
         """
         The filter bar: Party | Month | Year | Status | [Search]
-        (unchanged from your existing version)
         """
         filter_frame = Frame(self.root, bg="white")
         filter_frame.place(x=500, y=10, width=800, height=30)
@@ -258,6 +258,7 @@ class AdvanceAmount:
             filter_frame,
             textvariable=self.var_search_status,
             values=["All", "Pending", "Paid"],
+            state="readonly",
             width=8
         ).pack(side=LEFT, padx=5)
         
@@ -270,19 +271,15 @@ class AdvanceAmount:
 
     def save(self):
         """
-        Inserts a new advance record.  
-        Because we removed the “Type” and “Due Date” inputs, 
-        we hardcode them here as follows:
-          type = "Given"
-          due_date = ""
+        Inserts a new advance record.
+        We hardcode type="Given" and due_date="".
         """
-        if not all([self.var_description.get(), self.var_amount.get()]):
+        if not all([self.var_description.get(), self.var_amount.get(), self.var_party.get(), self.var_advance_date.get()]):
             messagebox.showerror("Error", "Please fill all mandatory fields!")
             return
             
         try:
             entry_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # Hardcode type="Given", due_date="" (empty)
             self.cursor.execute('''
                 INSERT INTO advances 
                   (entry_date, description, amount, type, party, 
@@ -406,6 +403,100 @@ class AdvanceAmount:
         except Exception as e:
             messagebox.showerror("Error", f"Database error: {str(e)}")
 
+    def convert_to_payout(self):
+        """
+        Convert the selected advance into a Payout transaction.
+        - Inserts a new record into transactions with type='Income'
+          and category='Advance Payout', using the original advance details.
+        - Deletes the original advance from advances.
+        """
+        if not self.var_id.get():
+            messagebox.showerror("Error", "Select an advance to convert!")
+            return
+        
+        try:
+            # Fetch selected advance details
+            self.cursor.execute(
+                "SELECT description, amount, party, advance_date FROM advances WHERE id = ?",
+                (self.var_id.get(),)
+            )
+            result = self.cursor.fetchone()
+            if not result:
+                messagebox.showerror("Error", "Selected advance not found!")
+                return
+            
+            desc, amt, party, adv_date = result
+            current_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            month = datetime.strptime(current_ts, "%Y-%m-%d %H:%M:%S").month
+            year = datetime.strptime(current_ts, "%Y-%m-%d %H:%M:%S").year
+            
+            # Insert into transactions as a Payout (Income)
+            self.cursor.execute('''
+                INSERT INTO transactions
+                  (datetime, description, amount, type, category, month, year, fixed_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            ''', (
+                current_ts,
+                f"Advance Payout: {desc}",
+                float(amt),
+                "Income",
+                "Advance Payout",
+                month,
+                year
+            ))
+            
+            # Delete the original advance
+            self.cursor.execute("DELETE FROM advances WHERE id = ?", (self.var_id.get(),))
+            self.db.commit()
+            
+            self.load_data()
+            self.clear()
+            messagebox.showinfo("Success", "Advance converted to Payout successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
+
+    def convert_to_loan(self):
+        if not self.var_id.get():
+            messagebox.showerror("Error", "Select an advance to convert!")
+            return
+        
+        try:
+            # === ADD THIS CODE TO FETCH ADVANCE DETAILS ===
+            self.cursor.execute(
+                "SELECT description, amount, party FROM advances WHERE id = ?",
+                (self.var_id.get(),)
+            )
+            result = self.cursor.fetchone()
+            if not result:
+                messagebox.showerror("Error", "Selected advance not found!")
+                return
+            desc, amt, party = result  # Now 'desc', 'amt', 'party' are defined
+            # === END OF ADDED CODE ===
+
+            loan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            due_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+            
+            self.cursor.execute('''
+                INSERT INTO loans
+                (loan_date, description, amount, party, due_date, status, repaid_date)
+                VALUES (?, ?, ?, ?, ?, ?, NULL)
+            ''', (
+                loan_date,
+                f"Converted from Advance: {desc}",
+                float(amt),
+                party,
+                due_date,
+                "Pending"
+            ))
+            
+            self.cursor.execute("DELETE FROM advances WHERE id = ?", (self.var_id.get(),))
+            self.db.commit()
+            messagebox.showinfo("Success", "Advance converted to Loan successfully!")
+            self.load_data()
+            self.clear()
+        except Exception as e:
+            messagebox.showerror("Error", f"Database error: {str(e)}")
+
     def get_data(self, event):
         """
         When a row is clicked, populate the left‐side fields.
@@ -426,7 +517,7 @@ class AdvanceAmount:
 
     def update(self):
         """
-        Update an existing record. 
+        Update an existing record.
         We STILL have to set “type”=“Given” and “due_date”="" under the hood.
         """
         if not self.var_id.get():

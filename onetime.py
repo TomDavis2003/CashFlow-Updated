@@ -132,30 +132,43 @@ class OneTime:
 
     def load_data(self):
         self.tree.delete(*self.tree.get_children())
-        query = '''SELECT id, datetime, description, amount, type, category 
-                 FROM transactions WHERE fixed_id IS NULL'''
+        # Only include true one‐time entries, NOT advance‐payouts (or other excluded categories)
+        query = '''
+            SELECT id, datetime, description, amount, type, category
+              FROM transactions
+             WHERE fixed_id IS NULL
+               AND category != "Advance Payout"
+               AND category != "Loan Repaid"
+        '''
         params = []
-        
+
+        # Month filter
         if self.var_search_month.get() and self.var_search_month.get() != "All":
             month_num = datetime.strptime(self.var_search_month.get(), "%B").month
             query += " AND strftime('%m', datetime) = ?"
             params.append(f"{month_num:02d}")
-        
-        if self.var_search_year.get():
+
+        # Year filter
+        if self.var_search_year.get() and self.var_search_year.get() != "All":
             query += " AND strftime('%Y', datetime) = ?"
             params.append(self.var_search_year.get())
-        
+
         query += " ORDER BY datetime DESC"
-        
+
         self.cursor.execute(query, params)
         for row in self.cursor.fetchall():
-            self.tree.insert("", "end", text=row[0], values=(
-                datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S").strftime("%d-%b-%Y %H:%M"),
-                row[2],
-                row[3],
-                row[4],
-                row[5]
-            ))
+            rec_id, dt_str, desc, amt, typ, cat = row
+            try:
+                display_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").strftime("%d-%b-%Y %H:%M")
+            except ValueError:
+                display_dt = dt_str
+
+            self.tree.insert(
+                "",
+                "end",
+                text=rec_id,
+                values=(display_dt, desc, amt, typ, cat)
+            )
 
     def get_data(self, event):
         selected = self.tree.focus()

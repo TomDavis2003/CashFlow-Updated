@@ -19,7 +19,7 @@ class LoanAmount:
 
         # Variables
         self.var_id          = StringVar()
-        self.var_entry_date  = StringVar()
+        self.var_loan_date   = StringVar()  # Changed from entry_date to loan_date
         self.var_description = StringVar()
         self.var_amount      = StringVar()
         self.var_party       = StringVar()
@@ -43,7 +43,7 @@ class LoanAmount:
         """
         Ensure the `loans` table exists with required columns:
           - id           : INTEGER PK
-          - entry_date   : TEXT (YYYY-MM-DD HH:MM:SS)
+          - loan_date    : TEXT (YYYY-MM-DD HH:MM:SS)
           - description  : TEXT
           - amount       : REAL
           - party        : TEXT
@@ -54,7 +54,7 @@ class LoanAmount:
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS loans (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                entry_date   TEXT    NOT NULL,
+                loan_date    TEXT    NOT NULL,  
                 description  TEXT    NOT NULL,
                 amount       REAL    NOT NULL,
                 party        TEXT    NOT NULL,
@@ -64,11 +64,11 @@ class LoanAmount:
             )
         ''')
         self.db.commit()
-
+        
     def create_input_fields(self):
         """
-        Left‐side input form (ID is hidden, entry_date is readonly):
-          - Entry Date (auto)
+        Left‐side input form (ID is hidden, loan_date is readonly):
+          - Loan Date (auto)
           - Description
           - Amount
           - Party
@@ -86,7 +86,7 @@ class LoanAmount:
         ).pack(fill=X)
 
         fields = [
-            ("Entry Date",   self.var_entry_date,   50),
+            ("Loan Date",   self.var_entry_date,   50),  # Changed from Entry Date to Loan Date
             ("Description",  self.var_description, 100),
             ("Amount",       self.var_amount,      150),
             ("Party",        self.var_party,       200),
@@ -113,7 +113,7 @@ class LoanAmount:
                     font=("arial", 11)
                 ).place(x=150, y=y_pos, width=120)
 
-            # If it’s a dropdown (Status)
+            # If it's a dropdown (Status)
             elif len(field) > 3 and isinstance(field[3], list):
                 ttk.Combobox(
                     input_frame,
@@ -124,8 +124,8 @@ class LoanAmount:
                 ).place(x=150, y=y_pos, width=200)
 
             else:
-                # Entry Date is readonly
-                if field[0] == "Entry Date":
+                # Loan Date is readonly
+                if field[0] == "Loan Date":
                     Entry(
                         input_frame,
                         textvariable=field[1],
@@ -145,7 +145,7 @@ class LoanAmount:
 
     def date_picker(self, field_type):
         """
-        Opens a child Toplevel with a Calendar; on “Select,” we set either
+        Opens a child Toplevel with a Calendar; on "Select," we set either
         var_due_date, then close the calendar.
         """
         top = Toplevel(self.root)
@@ -185,7 +185,7 @@ class LoanAmount:
     def create_treeview(self):
         """
         Right‐side Treeview with columns:
-          ID | Entry Date | Description | Amount | Party | Due Date | Status
+          ID | Loan Date | Description | Amount | Party | Due Date | Status
         """
         tree_frame = Frame(self.root, bd=3, relief=RIDGE)
         tree_frame.place(x=500, y=50, width=800, height=600)
@@ -194,7 +194,7 @@ class LoanAmount:
         self.tree = ttk.Treeview(
             tree_frame,
             columns=(
-                "entry_date", "desc", "amount", "party",
+                "loan_date", "desc", "amount", "party",
                 "due_date", "status"
             ),
             yscrollcommand=scroll_y.set
@@ -204,12 +204,12 @@ class LoanAmount:
 
         columns = [
             ("#0",         "ID",           50,  'center'),
-            ("entry_date", "Entry Date",  120,  'center'),
+            ("loan_date", "Loan Date",    120,  'center'),  # Changed from entry_date
             ("desc",       "Description", 200,  'w'),
-            ("amount",     "Amount",       80,  'e'),
-            ("party",      "Party",       120,  'w'),
-            ("due_date",   "Due Date",    100,  'center'),
-            ("status",     "Status",      100,  'center')
+            ("amount",    "Amount",     80,  'e'),
+            ("party",     "Party",     120,  'w'),
+            ("due_date",  "Due Date",  100,  'center'),
+            ("status",    "Status",    100,  'center')
         ]
 
         for (col_id, heading, width, anchor) in columns:
@@ -271,12 +271,6 @@ class LoanAmount:
         ).pack(side=LEFT, padx=5)
 
     def save(self):
-        """
-        Insert a new loan record:
-          - entry_date = current timestamp
-          - description, amount, party, due_date, status  from form
-          - repaid_date = NULL
-        """
         if not all([
             self.var_description.get(),
             self.var_amount.get(),
@@ -287,13 +281,14 @@ class LoanAmount:
             return
 
         try:
-            entry_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Use loan_date instead of entry_date
+            loan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Correct variable
             self.cursor.execute('''
                 INSERT INTO loans
-                  (entry_date, description, amount, party, due_date, status, repaid_date)
+                (loan_date, description, amount, party, due_date, status, repaid_date)
                 VALUES (?, ?, ?, ?, ?, ?, NULL)
             ''', (
-                entry_date,
+                loan_date,  # Now matches the column name
                 self.var_description.get(),
                 float(self.var_amount.get()),
                 self.var_party.get(),
@@ -308,17 +303,10 @@ class LoanAmount:
             messagebox.showerror("Error", f"Database error: {e}")
 
     def load_data(self):
-        """
-        Fetch loan records from `loans` with status='Pending' or 'Repaid',
-        applying filters on party/status/month/year (month & year from due_date).
-        Then populate the Treeview.
-        """
         self.tree.delete(*self.tree.get_children())
-
         query = '''
-            SELECT id, entry_date, description, amount, party,
-                   due_date, status
-              FROM loans
+            SELECT id, loan_date, description, amount, party, due_date, status
+            FROM loans  # Use loan_date instead of entry_date
         '''
         params = []
         conditions = []
@@ -353,21 +341,21 @@ class LoanAmount:
         rows = self.cursor.fetchall()
 
         for row in rows:
-            (rid, ent_dt, desc, amt, party, ddate, status) = row
+            (rid, loan_dt, desc, amt, party, ddate, status) = row
 
-            # Format entry_date from "YYYY-MM-DD HH:MM:SS" to "DD-Mon-YYYY HH:MM"
+            # Format loan_date from "YYYY-MM-DD HH:MM:SS" to "DD-Mon-YYYY HH:MM"
             try:
-                ent_dt_obj = datetime.strptime(ent_dt, "%Y-%m-%d %H:%M:%S")
-                ent_display = ent_dt_obj.strftime("%d-%b-%Y %H:%M")
+                loan_dt_obj = datetime.strptime(loan_dt, "%Y-%m-%d %H:%M:%S")
+                loan_display = loan_dt_obj.strftime("%d-%b-%Y %H:%M")
             except ValueError:
-                ent_display = ent_dt
+                loan_display = loan_dt
 
             self.tree.insert(
                 "",
                 "end",
                 text=rid,
                 values=(
-                    ent_display,
+                    loan_display,
                     desc,
                     f"{amt:.2f}",
                     party,
@@ -387,8 +375,8 @@ class LoanAmount:
         data = self.tree.item(selected)
         self.var_id.set(data["text"])
         vals = data["values"]
-        # values = [entry_date, description, amount, party, due_date, status]
-        self.var_entry_date.set(vals[0])
+        # values = [loan_date, description, amount, party, due_date, status]
+        self.var_loan_date.set(vals[0])  # Changed from entry_date to loan_date
         self.var_description.set(vals[1])
         self.var_amount.set(vals[2])
         self.var_party.set(vals[3])
@@ -398,7 +386,7 @@ class LoanAmount:
     def update(self):
         """
         Update an existing loan record.
-        We preserve the original `entry_date` in the DB.
+        We preserve the original `loan_date` in the DB.
         """
         if not self.var_id.get():
             messagebox.showerror("Error", "Select a record to update!")
@@ -478,7 +466,7 @@ class LoanAmount:
         """
         for var in [
             self.var_id,
-            self.var_entry_date,
+            self.var_loan_date,  # Changed from entry_date to loan_date
             self.var_description,
             self.var_amount,
             self.var_party,
